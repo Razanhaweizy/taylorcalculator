@@ -6,43 +6,33 @@ app = Flask(__name__)
 
 class TaylorCalculator:
     @staticmethod
-    def parse_inputs(function_expr: str, variables: str, expansions: str) -> Tuple[sp.Expr, List[sp.Symbol], List[Tuple[sp.Symbol, float]]]:
-        """Parse and validate all user inputs"""
+    def decompose_function(function_expr: str) -> List[Tuple[sp.Expr, List[sp.Symbol]]]:
+        """Decompose a composite function into its components"""
         try:
-            # Parse function
-            if not function_expr:
-                raise ValueError("Function expression cannot be empty")
             f = sp.sympify(function_expr)
+            components = []
             
-            # Parse variables
-            if not variables:
-                raise ValueError("Variables cannot be empty")
-            variables = [sp.symbols(var.strip()) for var in variables.split(',')]
+            # Get the full expression tree
+            expr_tree = sp.preorder_traversal(f)
             
-            # Parse expansion points
-            if not expansions:
-                raise ValueError("Expansion points cannot be empty")
-            expansion_points = []
-            for pt in expansions.split(';'):
-                var_name, value = pt.split('=')
-                var = sp.symbols(var_name.strip())
-                if var not in variables:
-                    raise ValueError(f"Expansion point variable {var} not in declared variables")
-                expansion_points.append((var, float(value)))
-                
-            # Validate that all variables have expansion points
-            if len(expansion_points) != len(variables):
-                raise ValueError("Number of expansion points must match number of variables")
-                
-            return f, variables, expansion_points
+            # Find composite sub-expressions
+            for expr in expr_tree:
+                if isinstance(expr, sp.Basic) and not expr.is_Atom:
+                    free_symbols = list(expr.free_symbols)
+                    if free_symbols:  # Only consider expressions with variables
+                        components.append((expr, free_symbols))
+            
+            # Sort components by complexity (number of operations)
+            components.sort(key=lambda x: len(str(x[0])))
+            return components
             
         except Exception as e:
-            raise ValueError(f"Input parsing error: {str(e)}")
+            raise ValueError(f"Function decomposition error: {str(e)}")
 
     @staticmethod
-    def compute_taylor_expansion(f: sp.Expr, var: sp.Symbol, 
-                               point: float, order: int) -> sp.Expr:
-        """Compute Taylor expansion for a single variable"""
+    def compute_univariate_taylor(f: sp.Expr, var: sp.Symbol, 
+                                point: float, order: int) -> sp.Expr:
+        """Compute Taylor expansion for a single variable function"""
         expansion = 0
         term = f
         fact = 1
@@ -57,22 +47,50 @@ class TaylorCalculator:
         return expansion
 
     @staticmethod
+    def substitute_expansions(original: sp.Expr, expansions: Dict[sp.Expr, sp.Expr]) -> sp.Expr:
+        """Substitute Taylor expansions back into the original expression"""
+        result = original
+        
+        # Sort expansions by expression size (largest first) to handle nested substitutions
+        sorted_expansions = sorted(expansions.items(), key=lambda x: len(str(x[0])), reverse=True)
+        
+        for expr, expansion in sorted_expansions:
+            result = result.subs(expr, expansion)
+            
+        return result
+
+    @staticmethod
     def calculate_series(f: sp.Expr, variables: List[sp.Symbol], 
                         expansion_points: List[Tuple[sp.Symbol, float]], 
                         order: int) -> Tuple[sp.Expr, List[Dict]]:
-        """Calculate the complete Taylor series expansion"""
-        result = f
+        """Calculate Taylor series using component-wise expansion"""
         steps = []
         
-        # Calculate Taylor expansion for each variable
-        for var, point in expansion_points:
-            result = TaylorCalculator.compute_taylor_expansion(result, var, point, order)
+        # Step 1: Decompose the function
+        components = TaylorCalculator.decompose_function(str(f))
+        steps.append({
+            'step': 'decomposition',
+            'components': [str(comp[0]) for comp in components]
+        })
+        
+        # Step 2: Calculate Taylor expansions for each component
+        expansions = {}
+        for comp, comp_vars in components:
+            comp_expansion = comp
+            for var, point in expansion_points:
+                if var in comp_vars:
+                    comp_expansion = TaylorCalculator.compute_univariate_taylor(
+                        comp_expansion, var, point, order
+                    )
+            expansions[comp] = comp_expansion
             steps.append({
-                'variable': str(var),
-                'point': point,
-                'expansion': str(result)
+                'component': str(comp),
+                'expansion': str(comp_expansion)
             })
-            
+        
+        # Step 3: Substitute back into original expression
+        result = TaylorCalculator.substitute_expansions(f, expansions)
+        
         return result, steps
 
 @app.route('/')
@@ -93,7 +111,7 @@ def calculate():
         # Parse inputs
         f, variables, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
         
-        # Calculate complete Taylor series
+        # Calculate Taylor series using component-wise approach
         result, steps = calculator.calculate_series(f, variables, expansion_points, order)
         
         # Simplify final result
