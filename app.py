@@ -6,6 +6,26 @@ app = Flask(__name__)
 
 class TaylorCalculator:
     @staticmethod
+    def parse_inputs(function_expr: str, variables: str, expansions: str) -> Tuple[sp.Expr, List[sp.Symbol], List[Tuple[sp.Symbol, float]]]:
+        """Parse user inputs into SymPy objects."""
+        try:
+            # Convert the function expression to a SymPy object
+            f = sp.sympify(function_expr)
+            
+            # Parse the variables into a list of SymPy symbols
+            vars_list = [sp.symbols(var.strip()) for var in variables.split(',')]
+            
+            # Parse expansion points into a list of (variable, value) pairs
+            exp_points = [
+                (sp.symbols(var.strip()), float(value.strip()))
+                for var, value in [exp.split('=') for exp in expansions.split(';')]
+            ]
+
+            return f, vars_list, exp_points
+        except Exception as e:
+            raise ValueError(f"Input parsing error: {str(e)}")
+
+    @staticmethod
     def decompose_function(function_expr: str) -> List[Tuple[sp.Expr, List[sp.Symbol]]]:
         """Decompose a composite function into its components"""
         try:
@@ -109,10 +129,10 @@ def calculate():
         calculator = TaylorCalculator()
         
         # Parse inputs
-        f, variables, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
+        f, vars_list, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
         
         # Calculate Taylor series using component-wise approach
-        result, steps = calculator.calculate_series(f, variables, expansion_points, order)
+        result, steps = calculator.calculate_series(f, vars_list, expansion_points, order)
         
         # Simplify final result
         final_result = str(result.simplify())
