@@ -1,13 +1,13 @@
-# app.py
 from flask import Flask, request, jsonify, render_template
 import sympy as sp
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 app = Flask(__name__)
 
 class TaylorCalculator:
     @staticmethod
     def parse_inputs(function_expr: str, variables: str, expansions: str) -> Tuple[sp.Expr, List[sp.Symbol], List[Tuple[sp.Symbol, float]]]:
+        """Parse and validate all user inputs"""
         try:
             # Parse function
             if not function_expr:
@@ -17,8 +17,7 @@ class TaylorCalculator:
             # Parse variables
             if not variables:
                 raise ValueError("Variables cannot be empty")
-            var_list = [var.strip() for var in variables.split(',')]
-            variables = [sp.symbols(var) for var in var_list]
+            variables = [sp.symbols(var.strip()) for var in variables.split(',')]
             
             # Parse expansion points
             if not expansions:
@@ -31,6 +30,7 @@ class TaylorCalculator:
                     raise ValueError(f"Expansion point variable {var} not in declared variables")
                 expansion_points.append((var, float(value)))
                 
+            # Validate that all variables have expansion points
             if len(expansion_points) != len(variables):
                 raise ValueError("Number of expansion points must match number of variables")
                 
@@ -40,7 +40,9 @@ class TaylorCalculator:
             raise ValueError(f"Input parsing error: {str(e)}")
 
     @staticmethod
-    def compute_taylor_expansion(f: sp.Expr, var: sp.Symbol, point: float, order: int) -> sp.Expr:
+    def compute_taylor_expansion(f: sp.Expr, var: sp.Symbol, 
+                               point: float, order: int) -> sp.Expr:
+        """Compute Taylor expansion for a single variable"""
         expansion = 0
         term = f
         fact = 1
@@ -53,6 +55,25 @@ class TaylorCalculator:
             expansion += term_at_point * (var - point)**n / fact
             
         return expansion
+
+    @staticmethod
+    def calculate_series(f: sp.Expr, variables: List[sp.Symbol], 
+                        expansion_points: List[Tuple[sp.Symbol, float]], 
+                        order: int) -> Tuple[sp.Expr, List[Dict]]:
+        """Calculate the complete Taylor series expansion"""
+        result = f
+        steps = []
+        
+        # Calculate Taylor expansion for each variable
+        for var, point in expansion_points:
+            result = TaylorCalculator.compute_taylor_expansion(result, var, point, order)
+            steps.append({
+                'variable': str(var),
+                'point': point,
+                'expansion': str(result)
+            })
+            
+        return result, steps
 
 @app.route('/')
 def home():
@@ -72,18 +93,10 @@ def calculate():
         # Parse inputs
         f, variables, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
         
-        # Calculate Taylor expansion for each variable
-        result = f
-        steps = []
+        # Calculate complete Taylor series
+        result, steps = calculator.calculate_series(f, variables, expansion_points, order)
         
-        for var, point in expansion_points:
-            result = calculator.compute_taylor_expansion(result, var, point, order)
-            steps.append({
-                'variable': str(var),
-                'point': point,
-                'expansion': str(result)
-            })
-        
+        # Simplify final result
         final_result = str(result.simplify())
         
         return jsonify({
