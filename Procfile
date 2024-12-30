@@ -1,1 +1,1 @@
-web: python taylor_series_app.py
+web: python app.py
