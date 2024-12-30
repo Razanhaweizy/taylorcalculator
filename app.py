@@ -2,29 +2,9 @@ from flask import Flask, request, jsonify, render_template
 import sympy as sp
 from typing import List, Tuple, Dict
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
 
 class TaylorCalculator:
-    @staticmethod
-    def parse_inputs(function_expr: str, variables: str, expansions: str) -> Tuple[sp.Expr, List[sp.Symbol], List[Tuple[sp.Symbol, float]]]:
-        """Parse user inputs into SymPy objects."""
-        try:
-            # Convert the function expression to a SymPy object
-            f = sp.sympify(function_expr)
-            
-            # Parse the variables into a list of SymPy symbols
-            vars_list = [sp.symbols(var.strip()) for var in variables.split(',')]
-            
-            # Parse expansion points into a list of (variable, value) pairs
-            exp_points = [
-                (sp.symbols(var.strip()), float(value.strip()))
-                for var, value in [exp.split('=') for exp in expansions.split(';')]
-            ]
-
-            return f, vars_list, exp_points
-        except Exception as e:
-            raise ValueError(f"Input parsing error: {str(e)}")
-
     @staticmethod
     def decompose_function(function_expr: str) -> List[Tuple[sp.Expr, List[sp.Symbol]]]:
         """Decompose a composite function into its components"""
@@ -80,6 +60,26 @@ class TaylorCalculator:
         return result
 
     @staticmethod
+    def parse_inputs(function_expr: str, variables: str, expansions: str) -> Tuple[sp.Expr, List[sp.Symbol], List[Tuple[sp.Symbol, float]]]:
+        """Parse input strings into Sympy expressions, symbols, and expansion points"""
+        try:
+            # Parse the function
+            f = sp.sympify(function_expr)
+
+            # Parse the variables
+            vars_list = [sp.Symbol(var.strip()) for var in variables.split(',')]
+
+            # Parse the expansion points
+            points = []
+            for exp in expansions.split(';'):
+                var, val = exp.split('=')
+                points.append((sp.Symbol(var.strip()), float(val.strip())))
+
+            return f, vars_list, points
+        except Exception as e:
+            raise ValueError(f"Input parsing error: {str(e)}")
+
+    @staticmethod
     def calculate_series(f: sp.Expr, variables: List[sp.Symbol], 
                         expansion_points: List[Tuple[sp.Symbol, float]], 
                         order: int) -> Tuple[sp.Expr, List[Dict]]:
@@ -127,23 +127,27 @@ def calculate():
         order = int(data['order'])
 
         calculator = TaylorCalculator()
-        
+
         # Parse inputs
-        f, vars_list, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
-        
+        print("Parsing inputs...")  # Debugging
+        f, variables, expansion_points = calculator.parse_inputs(function_expr, variables, expansions)
+
         # Calculate Taylor series using component-wise approach
-        result, steps = calculator.calculate_series(f, vars_list, expansion_points, order)
-        
+        print("Calculating series...")  # Debugging
+        result, steps = calculator.calculate_series(f, variables, expansion_points, order)
+
         # Simplify final result
         final_result = str(result.simplify())
-        
+        print("Calculation successful:", final_result)  # Debugging
+
         return jsonify({
             'success': True,
             'steps': steps,
             'result': final_result
         })
-        
+
     except Exception as e:
+        print("Error occurred:", str(e))  # Debugging
         return jsonify({
             'success': False,
             'error': str(e)
