@@ -1,4 +1,3 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multivariate Taylor Series Calculator</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
@@ -17,19 +17,19 @@
                 <label class="block text-sm font-medium text-gray-700">Function</label>
                 <input type="text" id="function" placeholder="e.g., sin(x)*cos(y)" 
                        class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
-                <p class="mt-1 text-sm text-gray-500">Use sympy syntax (e.g., sin(x), cos(y), exp(t))</p>
+                <p class="mt-1 text-sm text-gray-500">Use math.js syntax (e.g., sin(x), cos(y), exp(x))</p>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700">Variables</label>
-                <input type="text" id="variables" placeholder="e.g., x,y,t" 
+                <input type="text" id="variables" placeholder="e.g., x,y" 
                        class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
                 <p class="mt-1 text-sm text-gray-500">Comma-separated list of variables</p>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700">Expansion Points</label>
-                <input type="text" id="expansions" placeholder="e.g., x=0;y=0;t=0" 
+                <input type="text" id="expansions" placeholder="e.g., x=0;y=0" 
                        class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
                 <p class="mt-1 text-sm text-gray-500">Semicolon-separated list of variable=value pairs</p>
             </div>
@@ -55,66 +55,57 @@
     </div>
 
     <script>
-        async function calculateTaylor() {
-            // Clear previous results and errors
+        function parseExpansions(expansions) {
+            const points = {};
+            expansions.split(';').forEach(pair => {
+                const [variable, value] = pair.split('=');
+                points[variable.trim()] = parseFloat(value.trim());
+            });
+            return points;
+        }
+
+        function calculateTaylor() {
+            // Clear previous results
             document.getElementById('error').classList.add('hidden');
             document.getElementById('steps').innerHTML = '';
             document.getElementById('finalResult').innerHTML = '';
 
-            // Get input values
-            const functionExpr = document.getElementById('function').value;
-            const variables = document.getElementById('variables').value;
-            const expansions = document.getElementById('expansions').value;
-            const order = document.getElementById('order').value;
-
             try {
-                const response = await fetch('/calculate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        function: functionExpr,
-                        variables: variables,
-                        expansions: expansions,
-                        order: order
-                    })
-                });
+                const functionExpr = document.getElementById('function').value;
+                const variables = document.getElementById('variables').value.split(',').map(v => v.trim());
+                const expansions = parseExpansions(document.getElementById('expansions').value);
+                const order = parseInt(document.getElementById('order').value, 10);
 
-                const data = await response.json();
+                const expr = math.parse(functionExpr);
+                let taylorExpansion = math.compile("0");
 
-                if (data.success) {
-                    // Display steps
-                    const stepsDiv = document.getElementById('steps');
-                    data.steps.forEach((step, index) => {
-                        const stepDiv = document.createElement('div');
-                        stepDiv.className = 'p-4 bg-gray-50 rounded-lg';
-                        stepDiv.innerHTML = `
-                            <h3 class="font-semibold">Step ${index + 1}: Expansion around ${step.variable}=${step.point}</h3>
-                            <div class="mt-2">\\[${step.expansion}\\]</div>
-                        `;
-                        stepsDiv.appendChild(stepDiv);
+                // Perform Taylor expansion
+                for (let n = 0; n <= order; n++) {
+                    let term = expr;
+                    let fact = math.factorial(n);
+
+                    variables.forEach(variable => {
+                        const point = expansions[variable] || 0;
+                        for (let i = 0; i < n; i++) {
+                            term = math.derivative(term, variable);
+                        }
+                        term = term.evaluate({ [variable]: point }) * Math.pow(variable - point, n);
                     });
 
-                    // Display final result
-                    const finalDiv = document.createElement('div');
-                    finalDiv.className = 'p-4 bg-blue-50 rounded-lg';
-                    finalDiv.innerHTML = `
-                        <h3 class="font-semibold">Final Result (Simplified)</h3>
-                        <div class="mt-2">\\[${data.result}\\]</div>
-                    `;
-                    document.getElementById('finalResult').appendChild(finalDiv);
-
-                    // Render math expressions
-                    MathJax.typesetPromise();
-                } else {
-                    const errorDiv = document.getElementById('error');
-                    errorDiv.textContent = data.error;
-                    errorDiv.classList.remove('hidden');
+                    taylorExpansion = math.add(taylorExpansion, math.divide(term, fact));
                 }
+
+                // Simplify and render
+                const simplified = math.simplify(taylorExpansion.toString()).toString();
+                const resultDiv = document.getElementById('finalResult');
+                resultDiv.innerHTML = `<div class="p-4 bg-blue-50 rounded-lg">
+                    <h3 class="font-semibold">Final Result (Simplified)</h3>
+                    <div class="mt-2">\\(${simplified}\\)</div>
+                </div>`;
+                MathJax.typesetPromise();
             } catch (error) {
                 const errorDiv = document.getElementById('error');
-                errorDiv.textContent = 'An error occurred while calculating';
+                errorDiv.textContent = 'Error: ' + error.message;
                 errorDiv.classList.remove('hidden');
             }
         }
