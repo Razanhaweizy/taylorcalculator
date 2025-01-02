@@ -64,8 +64,33 @@
             return points;
         }
 
+        function generateMultiIndex(totalOrder, numVars) {
+            const indices = [];
+            function generate(current, remaining, pos) {
+                if (pos === numVars) {
+                    if (remaining === 0) indices.push([...current]);
+                    return;
+                }
+                for (let i = 0; i <= remaining; i++) {
+                    current[pos] = i;
+                    generate(current, remaining - i, pos + 1);
+                }
+            }
+            generate(new Array(numVars).fill(0), totalOrder, 0);
+            return indices;
+        }
+
+        function calculatePartialDerivative(expr, variables, orders) {
+            let result = expr;
+            for (let i = 0; i < variables.length; i++) {
+                for (let j = 0; j < orders[i]; j++) {
+                    result = math.derivative(result, variables[i]);
+                }
+            }
+            return result;
+        }
+
         function calculateTaylor() {
-            // Clear previous results
             document.getElementById('error').classList.add('hidden');
             document.getElementById('steps').innerHTML = '';
             document.getElementById('finalResult').innerHTML = '';
@@ -77,30 +102,52 @@
                 const order = parseInt(document.getElementById('order').value, 10);
 
                 const expr = math.parse(functionExpr);
-                let taylorExpansion = math.compile("0");
+                let taylorExpansion = [];
 
-                // Perform Taylor expansion
-                for (let n = 0; n <= order; n++) {
-                    let term = expr;
-                    let fact = math.factorial(n);
+                // Calculate constant term (order 0)
+                const constTerm = expr.evaluate(expansions);
+                taylorExpansion.push(constTerm.toString());
 
-                    variables.forEach(variable => {
-                        const point = expansions[variable] || 0;
-                        for (let i = 0; i < n; i++) {
-                            term = math.derivative(term, variable);
+                // Calculate higher-order terms
+                for (let n = 1; n <= order; n++) {
+                    const multiIndices = generateMultiIndex(n, variables.length);
+                    
+                    for (const indices of multiIndices) {
+                        // Calculate partial derivative
+                        const derivative = calculatePartialDerivative(expr, variables, indices);
+                        
+                        // Evaluate at expansion point
+                        const derivativeValue = derivative.evaluate(expansions);
+                        
+                        // Calculate factorial denominator
+                        const factorialDenom = indices.reduce((acc, val) => acc * math.factorial(val), 1);
+                        
+                        // Build term
+                        let term = `(${derivativeValue}/${factorialDenom})`;
+                        
+                        // Add variable differences
+                        const diffTerms = variables.map((v, i) => 
+                            indices[i] > 0 ? `(${v}-${expansions[v]})^${indices[i]}` : ''
+                        ).filter(t => t !== '');
+                        
+                        if (diffTerms.length > 0) {
+                            term += '*' + diffTerms.join('*');
                         }
-                        term = term.evaluate({ [variable]: point }) * Math.pow(variable - point, n);
-                    });
-
-                    taylorExpansion = math.add(taylorExpansion, math.divide(term, fact));
+                        
+                        if (derivativeValue !== 0) {
+                            taylorExpansion.push(term);
+                        }
+                    }
                 }
 
-                // Simplify and render
-                const simplified = math.simplify(taylorExpansion.toString()).toString();
+                // Combine terms and simplify
+                const combinedExpression = taylorExpansion.join(' + ');
+                const simplified = math.simplify(combinedExpression).toString();
+                
                 const resultDiv = document.getElementById('finalResult');
                 resultDiv.innerHTML = `<div class="p-4 bg-blue-50 rounded-lg">
                     <h3 class="font-semibold">Final Result (Simplified)</h3>
-                    <div class="mt-2">\\(${simplified}\\)</div>
+                    <div class="mt-2">\\[${simplified}\\]</div>
                 </div>`;
                 MathJax.typesetPromise();
             } catch (error) {
