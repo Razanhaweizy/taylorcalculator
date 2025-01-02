@@ -7,6 +7,19 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.11.0/math.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        .mjx-chtml {
+            overflow-x: auto;
+            overflow-y: hidden;
+            max-width: 100%;
+            padding: 0.5em 0;
+        }
+        .result-container {
+            overflow-x: auto;
+            white-space: normal;
+            word-wrap: break-word;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
     <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-6">
@@ -113,19 +126,12 @@
                     const multiIndices = generateMultiIndex(n, variables.length);
                     
                     for (const indices of multiIndices) {
-                        // Calculate partial derivative
                         const derivative = calculatePartialDerivative(expr, variables, indices);
-                        
-                        // Evaluate at expansion point
                         const derivativeValue = derivative.evaluate(expansions);
-                        
-                        // Calculate factorial denominator
                         const factorialDenom = indices.reduce((acc, val) => acc * math.factorial(val), 1);
                         
-                        // Build term
                         let term = `(${derivativeValue}/${factorialDenom})`;
                         
-                        // Add variable differences
                         const diffTerms = variables.map((v, i) => 
                             indices[i] > 0 ? `(${v}-${expansions[v]})^${indices[i]}` : ''
                         ).filter(t => t !== '');
@@ -140,15 +146,17 @@
                     }
                 }
 
-                // Combine terms and simplify
                 const combinedExpression = taylorExpansion.join(' + ');
                 const simplified = math.simplify(combinedExpression).toString();
                 
                 const resultDiv = document.getElementById('finalResult');
-                resultDiv.innerHTML = `<div class="p-4 bg-blue-50 rounded-lg">
-                    <h3 class="font-semibold">Final Result (Simplified)</h3>
-                    <div class="mt-2">\\[${simplified}\\]</div>
-                </div>`;
+                resultDiv.innerHTML = `
+                    <div class="p-4 bg-blue-50 rounded-lg overflow-x-auto">
+                        <h3 class="font-semibold">Final Result (Simplified)</h3>
+                        <div class="mt-2 result-container">
+                            \\[${simplified}\\]
+                        </div>
+                    </div>`;
                 MathJax.typesetPromise();
             } catch (error) {
                 const errorDiv = document.getElementById('error');
