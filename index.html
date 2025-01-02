@@ -24,33 +24,33 @@
 <body class="bg-gray-100 min-h-screen py-12 px-4 sm:px-6 lg:px-8">
     <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-6">
         <h1 class="text-3xl font-bold text-center mb-8">Multivariate Taylor Series Calculator</h1>
-        
+
         <div class="space-y-6">
             <div>
                 <label class="block text-sm font-medium text-gray-700">Function</label>
                 <input type="text" id="function" placeholder="e.g., sin(x)*cos(y)" 
-                       class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                    class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
                 <p class="mt-1 text-sm text-gray-500">Use math.js syntax (e.g., sin(x), cos(y), exp(x))</p>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700">Variables</label>
                 <input type="text" id="variables" placeholder="e.g., x,y" 
-                       class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                    class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
                 <p class="mt-1 text-sm text-gray-500">Comma-separated list of variables</p>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700">Expansion Points</label>
                 <input type="text" id="expansions" placeholder="e.g., x=0;y=0" 
-                       class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
+                    class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2">
                 <p class="mt-1 text-sm text-gray-500">Semicolon-separated list of variable=value pairs</p>
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700">Order</label>
                 <input type="number" id="order" value="3" min="1" max="10" 
-                       class="mt-1 block w-32 border border-gray-300 rounded-md shadow-sm p-2">
+                    class="mt-1 block w-32 border border-gray-300 rounded-md shadow-sm p-2">
             </div>
 
             <button onclick="calculateTaylor()" 
@@ -68,39 +68,41 @@
     </div>
 
     <script>
-        function parseExpansions(expansions) {
-            const points = {};
-            expansions.split(';').forEach(pair => {
-                const [variable, value] = pair.split('=');
-                points[variable.trim()] = parseFloat(value.trim());
+        function expandTaylor(expr, variable, expansionPoint, order) {
+            let taylorSeries = [];
+            for (let n = 0; n <= order; n++) {
+                const derivative = n === 0 ? expr : math.derivative(expr, variable, { simplify: true });
+                const derivativeValue = derivative.evaluate({ [variable]: expansionPoint });
+                const term = `${derivativeValue} * (${variable} - ${expansionPoint})^${n}`;
+                taylorSeries.push(`(${term}) / ${math.factorial(n)}`);
+                expr = derivative; 
+            }
+            return taylorSeries.join(' + ');
+        }
+
+        function parseExpansions(expansionsStr) {
+            const expansions = {};
+            expansionsStr.split(';').forEach(pair => {
+                const [key, value] = pair.split('=').map(item => item.trim());
+                expansions[key] = parseFloat(value);
             });
-            return points;
+            return expansions;
         }
 
-        function generateMultiIndex(totalOrder, numVars) {
-            const indices = [];
-            function generate(current, remaining, pos) {
-                if (pos === numVars) {
-                    if (remaining === 0) indices.push([...current]);
-                    return;
-                }
-                for (let i = 0; i <= remaining; i++) {
-                    current[pos] = i;
-                    generate(current, remaining - i, pos + 1);
-                }
-            }
-            generate(new Array(numVars).fill(0), totalOrder, 0);
-            return indices;
-        }
+        function calculateComponentTaylor(component, variables, expansions, order) {
+            let expandedComponent = component.clone();
 
-        function calculatePartialDerivative(expr, variables, orders) {
-            let result = expr;
-            for (let i = 0; i < variables.length; i++) {
-                for (let j = 0; j < orders[i]; j++) {
-                    result = math.derivative(result, variables[i]);
-                }
-            }
-            return result;
+            variables.forEach(variable => {
+                const taylorExpansion = expandTaylor(component, variable, expansions[variable], order);
+                expandedComponent = expandedComponent.transform(node => {
+                    if (node.isSymbolNode && node.name === variable) {
+                        return math.parse(`(${taylorExpansion})`);
+                    }
+                    return node;
+                });
+            });
+
+            return expandedComponent;
         }
 
         function calculateTaylor() {
@@ -115,46 +117,30 @@
                 const order = parseInt(document.getElementById('order').value, 10);
 
                 const expr = math.parse(functionExpr);
-                let taylorExpansion = [];
 
-                // Calculate constant term (order 0)
-                const constTerm = expr.evaluate(expansions);
-                taylorExpansion.push(constTerm.toString());
-
-                // Calculate higher-order terms
-                for (let n = 1; n <= order; n++) {
-                    const multiIndices = generateMultiIndex(n, variables.length);
-                    
-                    for (const indices of multiIndices) {
-                        const derivative = calculatePartialDerivative(expr, variables, indices);
-                        const derivativeValue = derivative.evaluate(expansions);
-                        const factorialDenom = indices.reduce((acc, val) => acc * math.factorial(val), 1);
-                        
-                        let term = `(${derivativeValue}/${factorialDenom})`;
-                        
-                        const diffTerms = variables.map((v, i) => 
-                            indices[i] > 0 ? `(${v}-${expansions[v]})^${indices[i]}` : ''
-                        ).filter(t => t !== '');
-                        
-                        if (diffTerms.length > 0) {
-                            term += '*' + diffTerms.join('*');
-                        }
-                        
-                        if (derivativeValue !== 0) {
-                            taylorExpansion.push(term);
-                        }
+                // Break down into components
+                const components = expr.traverse(node => {
+                    if (node.isOperatorNode && node.op === '*') {
+                        return node.args;
                     }
-                }
+                    return [node];
+                });
 
-                const combinedExpression = taylorExpansion.join(' + ');
-                const simplified = math.simplify(combinedExpression).toString();
-                
+                // Compute Taylor expansions for each component
+                const expandedComponents = components.map(component => 
+                    calculateComponentTaylor(component, variables, expansions, order)
+                );
+
+                // Recombine components into a single expression
+                const finalExpr = expandedComponents.reduce((acc, comp) => acc.multiply(comp));
+                const simplified = math.simplify(finalExpr.toString()).toString();
+
                 const resultDiv = document.getElementById('finalResult');
                 resultDiv.innerHTML = `
                     <div class="p-4 bg-blue-50 rounded-lg overflow-x-auto">
                         <h3 class="font-semibold">Final Result (Simplified)</h3>
                         <div class="mt-2 result-container">
-                            \\[${simplified}\\]
+                            \[${simplified}\]
                         </div>
                     </div>`;
                 MathJax.typesetPromise();
